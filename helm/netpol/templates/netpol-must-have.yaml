@@ -1,0 +1,187 @@
+{{/*
+=============================================================================
+netpol-must-have.yaml
+Auto-injected critical egress/ingress rules when globalDeny is active.
+Each rule can be individually disabled via mustHave.<rule>.enabled = false.
+
+Rules:
+  - dns           : UDP+TCP 53 egress (+ optional nodeLocalDNS IP)
+  - metricsServer : TCP 4443 egress to metrics-server pod in kube-system
+  - kubeletProbes : TCP 10250 egress (required for liveness/readiness probes)
+  - kubeApiServer : TCP 443 egress (in-cluster API access)
+  - coreDNSIngress: TCP ingress from kube-system (optional, for CoreDNS health)
+=============================================================================
+*/}}
+
+{{- $mustHave := .Values.netpol.mustHave }}
+{{- $denyEgress := .Values.netpol.globalDeny.egress.enabled }}
+{{- $denyIngress := .Values.netpol.globalDeny.ingress.enabled }}
+
+{{/* -------------------------------------------------------------------------
+  DNS — Egress UDP+TCP port 53
+  Auto-injected when globalDeny.egress is enabled and mustHave.dns is enabled.
+------------------------------------------------------------------------------ */}}
+{{- if and $denyEgress $mustHave.dns.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: must-have
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow DNS resolution (UDP+TCP {{ $mustHave.dns.port }}). Auto-injected when globalDeny.egress is enabled."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: {{ $mustHave.dns.port }}
+          protocol: UDP
+        - port: {{ $mustHave.dns.port }}
+          protocol: TCP
+    {{- if $mustHave.dns.nodeLocalDNS.enabled }}
+    # NodeLocal DNSCache — allows traffic to the node-local link-local IP
+    - to:
+        - ipBlock:
+            cidr: {{ $mustHave.dns.nodeLocalDNS.ip }}/32
+      ports:
+        - port: {{ $mustHave.dns.nodeLocalDNS.port }}
+          protocol: UDP
+        - port: {{ $mustHave.dns.nodeLocalDNS.port }}
+          protocol: TCP
+    {{- end }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  Metrics Server — Egress TCP to metrics-server in kube-system
+  Auto-injected when globalDeny.egress is enabled and mustHave.metricsServer is enabled.
+  Required for: kubectl top, HPA, VPA.
+------------------------------------------------------------------------------ */}}
+{{- if and $denyEgress $mustHave.metricsServer.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-metrics-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: must-have
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to metrics-server (TCP {{ $mustHave.metricsServer.port }}). Required for HPA and kubectl top."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- range $k, $v := $mustHave.metricsServer.namespaceSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+          podSelector:
+            matchLabels:
+              {{- range $k, $v := $mustHave.metricsServer.podSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+      ports:
+        - port: {{ $mustHave.metricsServer.port }}
+          protocol: TCP
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  Kubelet Probes — Egress TCP 10250
+  Auto-injected when globalDeny.egress is enabled and mustHave.kubeletProbes is enabled.
+  Required for: liveness, readiness, and startup probes.
+------------------------------------------------------------------------------ */}}
+{{- if and $denyEgress $mustHave.kubeletProbes.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-kubelet-probes
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: must-have
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to kubelet (TCP {{ $mustHave.kubeletProbes.port }}). Required for liveness/readiness/startup probes."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: {{ $mustHave.kubeletProbes.port }}
+          protocol: TCP
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  Kubernetes API Server — Egress TCP 443 (or 6443)
+  Auto-injected when globalDeny.egress is enabled and mustHave.kubeApiServer is enabled.
+  Required for: in-cluster API calls, operators, service accounts.
+------------------------------------------------------------------------------ */}}
+{{- if and $denyEgress $mustHave.kubeApiServer.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-kube-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: must-have
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to Kubernetes API server (TCP {{ $mustHave.kubeApiServer.port }}). Required for in-cluster API access."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: {{ $mustHave.kubeApiServer.port }}
+          protocol: TCP
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  CoreDNS Ingress — Ingress TCP from kube-system
+  Only rendered if explicitly enabled via mustHave.coreDNSIngress.enabled.
+  Needed if denyAllIngress is on and CoreDNS runs health checks into this namespace.
+------------------------------------------------------------------------------ */}}
+{{- if and $denyIngress $mustHave.coreDNSIngress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-coredns-healthcheck
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: must-have
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress from CoreDNS in kube-system for health checks (TCP {{ $mustHave.coreDNSIngress.port }})."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- range $k, $v := $mustHave.coreDNSIngress.namespaceSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+      ports:
+        - port: {{ $mustHave.coreDNSIngress.port }}
+          protocol: TCP
+{{- end }}

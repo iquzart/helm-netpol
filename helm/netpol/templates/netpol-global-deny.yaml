@@ -1,0 +1,45 @@
+{{/*
+=============================================================================
+netpol-global-deny.yaml
+Creates default-deny NetworkPolicy resources for ingress and/or egress.
+These are the baseline policies — all other rules explicitly allow above them.
+=============================================================================
+*/}}
+
+{{- if .Values.netpol.globalDeny.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: global-deny
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Default-deny all ingress traffic. Explicit allow rules override this."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+{{- end }}
+
+{{- if .Values.netpol.globalDeny.egress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: global-deny
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Default-deny all egress traffic. Explicit allow rules override this."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+{{- end }}

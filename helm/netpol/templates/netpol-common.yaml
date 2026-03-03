@@ -1,0 +1,278 @@
+{{/*
+=============================================================================
+netpol-common.yaml
+Pre-built configurable allow policies. Each is independently enabled/disabled.
+
+Policies:
+  Ingress:
+    - allowIngressFromSameNamespace
+    - allowIngressFromNamespace     (multi namespace+pod selector)
+    - allowIngressFromIngress       (multi ingress controller)
+    - allowIngressOnPorts           (multi port whitelist)
+    - allowIngressFromCIDR          (multi CIDR with optional except)
+
+  Egress:
+    - allowEgressToSameNamespace
+    - allowEgressToNamespace        (multi namespace+pod selector)
+    - allowEgressOnPorts            (multi port whitelist)
+    - allowEgressToCIDR             (multi CIDR with optional except)
+    - allowEgressToInternet
+=============================================================================
+*/}}
+
+{{- $common := .Values.netpol.common }}
+
+{{/* -------------------------------------------------------------------------
+  INGRESS: Allow from same namespace
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowIngressFromSameNamespace.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-same-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress from all pods within the same namespace."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  INGRESS: Allow from specific namespaces / pods
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowIngressFromNamespace.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress from specific namespaces and/or pods."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $common.allowIngressFromNamespace.from }}
+        {{- include "netpol.selectorEntry" . | nindent 8 }}
+        {{- end }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  INGRESS: Allow from ingress controllers
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowIngressFromIngress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-ingress-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress from ingress controllers (nginx, traefik, etc.)"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $common.allowIngressFromIngress.from }}
+        {{- include "netpol.selectorEntry" . | nindent 8 }}
+        {{- end }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  INGRESS: Allow on specific ports from any source
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowIngressOnPorts.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-on-ports
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress on specific ports from any source."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        {{- include "netpol.ports" $common.allowIngressOnPorts.ports | nindent 8 }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  INGRESS: Allow from specific CIDRs
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowIngressFromCIDR.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-cidr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: ingress
+  annotations:
+    netpol/description: "Allow ingress from specific IP/CIDR ranges."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- include "netpol.ipBlocks" $common.allowIngressFromCIDR.cidrs | nindent 8 }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  EGRESS: Allow to same namespace
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowEgressToSameNamespace.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-same-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to all pods within the same namespace."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  EGRESS: Allow to specific namespaces / pods
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowEgressToNamespace.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to specific namespaces and/or pods."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        {{- range $common.allowEgressToNamespace.to }}
+        {{- include "netpol.selectorEntry" . | nindent 8 }}
+        {{- end }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  EGRESS: Allow on specific ports to any destination
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowEgressOnPorts.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-on-ports
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress on specific ports to any destination."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        {{- include "netpol.ports" $common.allowEgressOnPorts.ports | nindent 8 }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  EGRESS: Allow to specific CIDRs
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowEgressToCIDR.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-cidr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow egress to specific IP/CIDR ranges."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        {{- include "netpol.ipBlocks" $common.allowEgressToCIDR.cidrs | nindent 8 }}
+{{- end }}
+
+{{/* -------------------------------------------------------------------------
+  EGRESS: Allow unrestricted internet access
+------------------------------------------------------------------------------ */}}
+{{- if $common.allowEgressToInternet.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-internet
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" . | nindent 4 }}
+    netpol/type: common
+    netpol/direction: egress
+  annotations:
+    netpol/description: "Allow unrestricted outbound internet access. Use with caution."
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - {}
+{{- end }}

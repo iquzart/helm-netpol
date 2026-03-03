@@ -1,0 +1,328 @@
+# =============================================================================
+# Network Policy Helm Chart — values.yaml
+# =============================================================================
+#
+# FLOW:
+#   1. globalDeny   → Creates default-deny NetworkPolicy for ingress/egress
+#   2. mustHave     → Auto-injected when globalDeny is active (DNS, metrics, etc.)
+#   3. common       → Pre-built opt-in allow patterns (namespaces, CIDRs, ports)
+#   4. custom       → Fully user-defined NetworkPolicy specs
+#
+# LOGIC:
+#   - mustHave rules are only rendered when the corresponding globalDeny is enabled
+#   - common and custom rules are always rendered when enabled, regardless of globalDeny
+#   - Combining namespaceSelector + podSelector in one `from`/`to` entry = AND logic
+#   - Separate entries in `from`/`to` list = OR logic
+# =============================================================================
+
+netpol:
+  # ---------------------------------------------------------------------------
+  # GLOBAL DENY
+  # ---------------------------------------------------------------------------
+  globalDeny:
+    ingress:
+      enabled: true
+    egress:
+      enabled: true
+
+  # ---------------------------------------------------------------------------
+  # MUST-HAVE RULES
+  # Auto-injected when globalDeny is active. Disable only if managed elsewhere.
+  # ---------------------------------------------------------------------------
+  mustHave:
+    # Required for all pod DNS resolution. Almost never disable this.
+    dns:
+      enabled: true
+      port: 53
+      # NodeLocal DNSCache - enable for EKS/GKE/AKS clusters using node-local DNS.
+      nodeLocalDNS:
+        enabled: false
+        # ip: "169.254.20.10"
+        # port: 53
+
+    # Required for kubectl top, HPA, and VPA.
+    metricsServer:
+      enabled: true
+      port: 4443
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: metrics-server
+
+    # Required for liveness, readiness, and startup probes.
+    kubeletProbes:
+      enabled: true
+      port: 10250
+
+    # Required for in-cluster API calls (operators, service accounts, etc.)
+    kubeApiServer:
+      enabled: true
+      port: 443
+      # port: 6443   # uncomment for kubeadm clusters
+
+    # Optional - only needed if CoreDNS health-checks reach into this namespace.
+    coreDNSIngress:
+      enabled: false
+      port: 8080
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+
+  # ---------------------------------------------------------------------------
+  # COMMON POLICIES
+  # ---------------------------------------------------------------------------
+  common:
+    # ---- INGRESS ------------------------------------------------------------
+
+    allowIngressFromSameNamespace:
+      enabled: false
+
+    # OR logic: each from[] entry is independent.
+    # AND logic: combine namespaceSelector + podSelector in one entry.
+    # Omit podSelector to allow from all pods in that namespace.
+    #
+    # Example:
+    #   from:
+    #     - namespaceSelector:            # AND: only these pods
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: monitoring
+    #       podSelector:
+    #         matchLabels:
+    #           app: prometheus
+    #     - namespaceSelector:            # OR: all pods in logging ns
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: logging
+    #     - namespaceSelector:            # OR: any ns with this label
+    #         matchLabels:
+    #           env: production
+    allowIngressFromNamespace:
+      enabled: false
+      from: []
+
+    # List all ingress controllers your namespace accepts traffic from.
+    #
+    # Example:
+    #   from:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: ingress-nginx
+    #       podSelector:
+    #         matchLabels:
+    #           app.kubernetes.io/name: ingress-nginx
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: traefik
+    #       podSelector:
+    #         matchLabels:
+    #           app.kubernetes.io/name: traefik
+    allowIngressFromIngress:
+      enabled: false
+      from: []
+
+    # Example:
+    #   ports:
+    #     - port: 80
+    #       protocol: TCP
+    #     - port: 443
+    #       protocol: TCP
+    #     - port: 8080
+    #       protocol: TCP
+    allowIngressOnPorts:
+      enabled: false
+      ports: []
+
+    # Use except[] to exclude specific IPs within a CIDR block.
+    #
+    # Example:
+    #   cidrs:
+    #     - cidr: "10.0.0.0/8"
+    #     - cidr: "203.0.113.0/24"
+    #       except:
+    #         - "203.0.113.5/32"
+    allowIngressFromCIDR:
+      enabled: false
+      cidrs: []
+
+    # ---- EGRESS -------------------------------------------------------------
+
+    allowEgressToSameNamespace:
+      enabled: false
+
+    # OR logic: each to[] entry is independent.
+    # AND logic: combine namespaceSelector + podSelector in one entry.
+    # Omit podSelector to allow to all pods in that namespace.
+    #
+    # Example:
+    #   to:
+    #     - namespaceSelector:            # AND: only these pods
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: backend
+    #       podSelector:
+    #         matchLabels:
+    #           app: api
+    #     - namespaceSelector:            # OR: all pods in database ns
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: database
+    #     - namespaceSelector:            # OR: all pods in shared-services
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: shared-services
+    allowEgressToNamespace:
+      enabled: false
+      to: []
+
+    # Example:
+    #   ports:
+    #     - port: 5432
+    #       protocol: TCP   # PostgreSQL
+    #     - port: 6379
+    #       protocol: TCP   # Redis
+    #     - port: 27017
+    #       protocol: TCP   # MongoDB
+    #     - port: 9200
+    #       protocol: TCP   # Elasticsearch
+    #     - port: 443
+    #       protocol: TCP   # HTTPS
+    allowEgressOnPorts:
+      enabled: false
+      ports: []
+
+    # Use except[] to exclude specific IPs within a CIDR block.
+    #
+    # Example:
+    #   cidrs:
+    #     - cidr: "10.0.0.0/8"
+    #     - cidr: "192.168.1.0/24"
+    #       except:
+    #         - "192.168.1.100/32"
+    allowEgressToCIDR:
+      enabled: false
+      cidrs: []
+
+    # Warning: broad rule - use with caution.
+    allowEgressToInternet:
+      enabled: false
+
+  # ---------------------------------------------------------------------------
+  # CUSTOM POLICIES
+  # Each entry maps 1:1 to a Kubernetes NetworkPolicy resource.
+  # Required: name, enabled, podSelector, policyTypes
+  # Optional: ingress, egress
+  # Selectors: podSelector, namespaceSelector, ipBlock (with optional except)
+  # ---------------------------------------------------------------------------
+  #
+  # Example - egress from frontend to backend:
+  # custom:
+  #   - name: allow-frontend-to-backend
+  #     enabled: true
+  #     podSelector:
+  #       matchLabels:
+  #         app: frontend
+  #     policyTypes:
+  #       - Egress
+  #     egress:
+  #       - to:
+  #           - podSelector:
+  #               matchLabels:
+  #                 app: backend
+  #         ports:
+  #           - port: 3000
+  #             protocol: TCP
+  #
+  # Example - allow Prometheus to scrape all pods:
+  # custom:
+  #   - name: allow-prometheus-scrape
+  #     enabled: true
+  #     podSelector: {}    # {} = all pods in namespace
+  #     policyTypes:
+  #       - Ingress
+  #     ingress:
+  #       - from:
+  #           - namespaceSelector:
+  #               matchLabels:
+  #                 kubernetes.io/metadata.name: monitoring
+  #             podSelector:
+  #               matchLabels:
+  #                 app: prometheus
+  #         ports:
+  #           - port: 9090
+  #             protocol: TCP
+  #
+  # Example - egress to external API via CIDR:
+  # custom:
+  #   - name: allow-payment-service-egress
+  #     enabled: true
+  #     podSelector:
+  #       matchLabels:
+  #         app: payment-service
+  #     policyTypes:
+  #       - Egress
+  #     egress:
+  #       - to:
+  #           - ipBlock:
+  #               cidr: "203.0.113.0/24"
+  #               except:
+  #                 - "203.0.113.5/32"
+  #         ports:
+  #           - port: 443
+  #             protocol: TCP
+  #
+  # Example - full ingress + egress for a database pod:
+  # custom:
+  #   - name: allow-db-access
+  #     enabled: true
+  #     podSelector:
+  #       matchLabels:
+  #         tier: db
+  #     policyTypes:
+  #       - Ingress
+  #       - Egress
+  #     ingress:
+  #       - from:
+  #           - podSelector:
+  #               matchLabels:
+  #                 app: backend
+  #           - podSelector:
+  #               matchLabels:
+  #                 app: migration-job
+  #         ports:
+  #           - port: 5432
+  #             protocol: TCP
+  #     egress:
+  #       - to:
+  #           - podSelector:
+  #               matchLabels:
+  #                 app: backup-agent
+  #         ports:
+  #           - port: 2222
+  #             protocol: TCP
+  #
+  # Example - egress to multiple services across namespaces:
+  # custom:
+  #   - name: allow-data-pipeline-egress
+  #     enabled: true
+  #     podSelector:
+  #       matchLabels:
+  #         app: data-pipeline
+  #     policyTypes:
+  #       - Egress
+  #     egress:
+  #       - to:
+  #           - namespaceSelector:
+  #               matchLabels:
+  #                 kubernetes.io/metadata.name: kafka
+  #             podSelector:
+  #               matchLabels:
+  #                 app: kafka-broker
+  #         ports:
+  #           - port: 9092
+  #             protocol: TCP
+  #       - to:
+  #           - namespaceSelector:
+  #               matchLabels:
+  #                 kubernetes.io/metadata.name: elastic
+  #         ports:
+  #           - port: 9200
+  #             protocol: TCP
+  custom: []

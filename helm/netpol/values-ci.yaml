@@ -1,0 +1,347 @@
+# =============================================================================
+# Network Policy Helm Chart — values.yaml
+# =============================================================================
+#
+# FLOW:
+#   1. globalDeny   → Creates default-deny NetworkPolicy for ingress/egress
+#   2. mustHave     → Auto-injected when globalDeny is active (DNS, metrics, etc.)
+#   3. common       → Pre-built opt-in allow patterns (namespaces, CIDRs, ports)
+#   4. custom       → Fully user-defined NetworkPolicy specs
+#
+# LOGIC:
+#   - mustHave rules are only rendered when the corresponding globalDeny is enabled
+#   - common and custom rules are always rendered when enabled, regardless of globalDeny
+#   - Combining namespaceSelector + podSelector in one `from`/`to` entry = AND logic
+#   - Separate entries in `from`/`to` list = OR logic
+# =============================================================================
+
+netpol:
+  # ---------------------------------------------------------------------------
+  # GLOBAL DENY
+  # Creates a default-deny NetworkPolicy for ingress and/or egress.
+  # This is the recommended baseline — deny everything, then whitelist explicitly.
+  # Must-have rules (dns, metricsServer, etc.) are auto-injected when active.
+  # ---------------------------------------------------------------------------
+  globalDeny:
+    ingress:
+      enabled: true
+    egress:
+      enabled: true
+
+  # ---------------------------------------------------------------------------
+  # MUST-HAVE RULES
+  # Automatically rendered when globalDeny.egress.enabled = true.
+  # These are critical for normal cluster operation.
+  # Each can be individually disabled if you manage them elsewhere.
+  # ---------------------------------------------------------------------------
+  mustHave:
+    # DNS — UDP+TCP port 53
+    # Required for all pod name resolution. Almost never disable this.
+    dns:
+      enabled: true
+      port: 53
+      # NodeLocal DNSCache (common in EKS, GKE, AKS)
+      # Adds an egress rule to the node-local link-local IP
+      nodeLocalDNS:
+        enabled: false
+        ip: "169.254.20.10"
+        port: 53
+
+    # Metrics Server — TCP port 4443
+    # Required for `kubectl top`, HorizontalPodAutoscaler, and VPA.
+    metricsServer:
+      enabled: true
+      port: 4443
+      # Namespace where metrics-server is deployed
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: metrics-server
+
+    # Kubelet Probes — TCP port 10250
+    # Required for liveness, readiness, and startup probes to work.
+    kubeletProbes:
+      enabled: true
+      port: 10250
+
+    # Kubernetes API Server — TCP port 443 (or 6443 for some clusters)
+    # Required for in-cluster API calls (operators, service accounts, etc.)
+    kubeApiServer:
+      enabled: true
+      port: 443
+      # Uncomment if your API server runs on 6443 (e.g. kubeadm clusters)
+      # port: 6443
+
+    # CoreDNS Ingress — allow CoreDNS health checks from kube-system
+    # Required if you have denyAllIngress and run CoreDNS in the same namespace
+    coreDNSIngress:
+      enabled: false
+      port: 8080
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+
+  # ---------------------------------------------------------------------------
+  # COMMON POLICIES
+  # Pre-built, configurable allow patterns. Enable what you need.
+  # These are rendered independently of globalDeny — they simply add allow rules.
+  # ---------------------------------------------------------------------------
+  common:
+    # ---- INGRESS POLICIES ---------------------------------------------------
+
+    # Allow ingress from all pods within the same namespace
+    allowIngressFromSameNamespace:
+      enabled: true
+
+    # Allow ingress from specific namespaces and/or pods
+    # Each `from` entry is a separate OR rule.
+    # namespaceSelector + podSelector in the same entry = AND logic (more restrictive).
+    # podSelector is optional — omit to allow from all pods in that namespace.
+    allowIngressFromNamespace:
+      enabled: true
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: logging
+        - namespaceSelector:
+            matchLabels:
+              env: production
+
+    # Allow ingress from ingress controllers
+    # List all controllers your namespace needs to accept traffic from.
+    allowIngressFromIngress:
+      enabled: true
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+
+    # Allow ingress on specific ports from any source
+    # Useful for exposing a fixed set of ports cluster-wide.
+    allowIngressOnPorts:
+      enabled: true
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+        - port: 9090
+          protocol: TCP
+
+    # Allow ingress from specific IP/CIDR ranges
+    # Use `except` to carve out exclusions within a CIDR block.
+    allowIngressFromCIDR:
+      enabled: true
+      cidrs:
+        - cidr: "10.0.0.0/8"
+        - cidr: "172.16.0.0/12"
+        - cidr: "203.0.113.0/24"
+          except:
+            - "203.0.113.5/32"
+
+    # ---- EGRESS POLICIES ----------------------------------------------------
+
+    # Allow egress to all pods within the same namespace
+    allowEgressToSameNamespace:
+      enabled: true
+
+    # Allow egress to specific namespaces and/or pods
+    # Each `to` entry is a separate OR rule.
+    # namespaceSelector + podSelector in same entry = AND logic (more restrictive).
+    # podSelector is optional — omit to allow to all pods in that namespace.
+    allowEgressToNamespace:
+      enabled: true
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: backend
+          podSelector:
+            matchLabels:
+              app: api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: database
+          podSelector:
+            matchLabels:
+              tier: db
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: shared-services
+
+    # Allow egress on specific ports to any destination
+    # Useful for allowing access to well-known service ports cluster-wide.
+    allowEgressOnPorts:
+      enabled: true
+      ports:
+        - port: 5432
+          protocol: TCP # PostgreSQL
+        - port: 6379
+          protocol: TCP # Redis
+        - port: 27017
+          protocol: TCP # MongoDB
+        - port: 9200
+          protocol: TCP # Elasticsearch
+        - port: 443
+          protocol: TCP # HTTPS
+
+    # Allow egress to specific IP/CIDR ranges
+    # Use `except` to carve out exclusions within a CIDR block.
+    allowEgressToCIDR:
+      enabled: true
+      cidrs:
+        - cidr: "10.0.0.0/8"
+        - cidr: "192.168.1.0/24"
+          except:
+            - "192.168.1.100/32"
+        - cidr: "172.16.0.0/12"
+
+    # Allow unrestricted outbound internet access
+    # Warning: broad rule — use with caution and only for trusted workloads.
+    allowEgressToInternet:
+      enabled: false
+
+  # ---------------------------------------------------------------------------
+  # CUSTOM POLICIES
+  # Fully user-defined NetworkPolicy specs. Each entry maps 1:1 to a Kubernetes
+  # NetworkPolicy resource. Use these for any pattern not covered by common policies.
+  #
+  # Required fields:
+  #   name          Unique name — becomes the NetworkPolicy resource name
+  #   enabled       Set false to skip rendering this policy entirely
+  #   podSelector   Target pods. Use {} to target all pods in the namespace
+  #   policyTypes   [Ingress], [Egress], or [Ingress, Egress]
+  #
+  # Optional fields:
+  #   ingress       List of ingress rules (required if Ingress in policyTypes)
+  #   egress        List of egress rules (required if Egress in policyTypes)
+  # ---------------------------------------------------------------------------
+  custom:
+    # Example 1: Allow frontend pods to reach backend pods on port 3000
+    - name: allow-frontend-to-backend
+      enabled: true
+      podSelector:
+        matchLabels:
+          app: frontend
+      policyTypes:
+        - Egress
+      egress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: backend
+          ports:
+            - port: 3000
+              protocol: TCP
+
+    # Example 2: Allow Prometheus to scrape metrics from all pods
+    - name: allow-prometheus-scrape
+      enabled: true
+      podSelector: {} # applies to all pods in the namespace
+      policyTypes:
+        - Ingress
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+              podSelector:
+                matchLabels:
+                  app: prometheus
+          ports:
+            - port: 9090
+              protocol: TCP
+            - port: 8080
+              protocol: TCP
+
+    # Example 3: Allow payment service to reach external API via CIDR
+    - name: allow-payment-service-egress
+      enabled: true
+      podSelector:
+        matchLabels:
+          app: payment-service
+      policyTypes:
+        - Egress
+      egress:
+        - to:
+            - ipBlock:
+                cidr: "203.0.113.0/24"
+                except:
+                  - "203.0.113.5/32"
+          ports:
+            - port: 443
+              protocol: TCP
+
+    # Example 4: Full ingress + egress policy for a database pod
+    - name: allow-db-access
+      enabled: true
+      podSelector:
+        matchLabels:
+          tier: db
+      policyTypes:
+        - Ingress
+        - Egress
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app: backend
+            - podSelector:
+                matchLabels:
+                  app: migration-job
+          ports:
+            - port: 5432
+              protocol: TCP
+      egress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: backup-agent
+          ports:
+            - port: 2222
+              protocol: TCP
+
+    # Example 5: Allow a job pod to reach multiple external services
+    - name: allow-data-pipeline-egress
+      enabled: true
+      podSelector:
+        matchLabels:
+          app: data-pipeline
+      policyTypes:
+        - Egress
+      egress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kafka
+              podSelector:
+                matchLabels:
+                  app: kafka-broker
+          ports:
+            - port: 9092
+              protocol: TCP
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: elastic
+          ports:
+            - port: 9200
+              protocol: TCP

@@ -1,0 +1,138 @@
+{{/*
+=============================================================================
+netpol-custom.yaml
+Loops over user-defined custom policies and renders each as a full
+Kubernetes NetworkPolicy resource.
+
+Each entry in .Values.netpol.custom must have:
+  - name         (string)   Unique policy name → becomes resource name
+  - enabled      (bool)     Skip rendering when false
+  - podSelector  (object)   Target pods. {} = all pods in namespace
+  - policyTypes  (list)     [Ingress], [Egress], or [Ingress, Egress]
+  - ingress      (list)     Optional. Required if Ingress in policyTypes
+  - egress       (list)     Optional. Required if Egress in policyTypes
+
+Custom ingress/egress rules are passed verbatim to the NetworkPolicy spec,
+giving full flexibility to express any rule supported by Kubernetes.
+=============================================================================
+*/}}
+
+{{- range .Values.netpol.custom }}
+{{- if .enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "netpol.labels" $ | nindent 4 }}
+    netpol/type: custom
+  annotations:
+    netpol/description: "Custom policy: {{ .name }}"
+spec:
+  podSelector:
+    {{- if .podSelector.matchLabels }}
+    matchLabels:
+      {{- range $k, $v := .podSelector.matchLabels }}
+      {{ $k }}: {{ $v }}
+      {{- end }}
+    {{- else }}
+    {}
+    {{- end }}
+  policyTypes:
+    {{- range .policyTypes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .ingress }}
+  ingress:
+    {{- range .ingress }}
+    - {{- if .from }}
+      from:
+        {{- range .from }}
+        - {{- if .podSelector }}
+          podSelector:
+            {{- if .podSelector.matchLabels }}
+            matchLabels:
+              {{- range $k, $v := .podSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+            {{- else }}
+            {}
+            {{- end }}
+          {{- end }}
+          {{- if .namespaceSelector }}
+          namespaceSelector:
+            matchLabels:
+              {{- range $k, $v := .namespaceSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+          {{- end }}
+          {{- if .ipBlock }}
+          ipBlock:
+            cidr: {{ .ipBlock.cidr }}
+            {{- if .ipBlock.except }}
+            except:
+              {{- range .ipBlock.except }}
+              - {{ . }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if .ports }}
+      ports:
+        {{- range .ports }}
+        - port: {{ .port }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- if .egress }}
+  egress:
+    {{- range .egress }}
+    - {{- if .to }}
+      to:
+        {{- range .to }}
+        - {{- if .podSelector }}
+          podSelector:
+            {{- if .podSelector.matchLabels }}
+            matchLabels:
+              {{- range $k, $v := .podSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+            {{- else }}
+            {}
+            {{- end }}
+          {{- end }}
+          {{- if .namespaceSelector }}
+          namespaceSelector:
+            matchLabels:
+              {{- range $k, $v := .namespaceSelector.matchLabels }}
+              {{ $k }}: {{ $v }}
+              {{- end }}
+          {{- end }}
+          {{- if .ipBlock }}
+          ipBlock:
+            cidr: {{ .ipBlock.cidr }}
+            {{- if .ipBlock.except }}
+            except:
+              {{- range .ipBlock.except }}
+              - {{ . }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if .ports }}
+      ports:
+        {{- range .ports }}
+        - port: {{ .port }}
+          protocol: {{ .protocol | default "TCP" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
