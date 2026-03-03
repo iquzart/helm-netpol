@@ -95,9 +95,9 @@ Auto-injected when the corresponding `globalDeny` direction is enabled.
 |-----|------|---------|-------------|
 | `mustHave.dns.enabled` | bool | `true` | Allow DNS (UDP+TCP 53) |
 | `mustHave.dns.nodeLocalDNS.enabled` | bool | `false` | Also allow NodeLocal DNSCache IP |
-| `mustHave.metricsServer.enabled` | bool | `true` | Allow egress to metrics-server (TCP 4443) |
-| `mustHave.kubeletProbes.enabled` | bool | `true` | Allow egress for kubelet probes (TCP 10250) |
-| `mustHave.kubeApiServer.enabled` | bool | `true` | Allow egress to API server (TCP 443) |
+| `mustHave.metricsServer.enabled` | bool | `false` | Allow egress to metrics-server (TCP 4443) |
+| `mustHave.kubeletProbes.enabled` | bool | `false` | Allow egress for kubelet probes (TCP 10250) |
+| `mustHave.kubeApiServer.enabled` | bool | `false` | Allow egress to API server (TCP 443) |
 | `mustHave.coreDNSIngress.enabled` | bool | `false` | Allow ingress from CoreDNS in kube-system |
 
 ### `common`

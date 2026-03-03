@@ -40,7 +40,7 @@ netpol:
         # ip: "169.254.20.10"
         # port: 53
 
-    # Required for kubectl top, HPA, and VPA.
+    # Optional - for kubectl top, HPA, and VPA.
     metricsServer:
       enabled: true
       port: 4443
@@ -51,12 +51,12 @@ netpol:
         matchLabels:
           k8s-app: metrics-server
 
-    # Required for liveness, readiness, and startup probes.
+    # Optional - for liveness, readiness, and startup probes (most kubernetes CNIs allow this by default).
     kubeletProbes:
       enabled: true
       port: 10250
 
-    # Required for in-cluster API calls (operators, service accounts, etc.)
+    # Optional - for in-cluster API calls (operators, service accounts, etc.)
     kubeApiServer:
       enabled: true
       port: 443
