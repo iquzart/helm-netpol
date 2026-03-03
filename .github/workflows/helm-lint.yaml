@@ -1,0 +1,70 @@
+#
+# Description:
+# This workflow automates the process of checking and validating Helm charts within a GitHub repository.
+# the workflow ensures that the charts are linted for various environments,
+#
+#
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - helm/**/*
+
+env:
+  CHART_BASE_PATH: "helm"
+  VALUES_ENVIRONMENTS: (ci)
+
+jobs:
+  get-charts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Get Charts
+        id: get-charts
+        run: |
+          CHARTS="$(basename -a ${{ env.CHART_BASE_PATH }}/* | jq -cnR '[inputs | select(length>0)]')"
+          echo "$CHARTS"
+          echo "charts=$CHARTS" >> $GITHUB_OUTPUT
+        shell: bash
+    outputs:
+      charts: ${{steps.get-charts.outputs.charts}}
+
+  lint:
+    runs-on: ubuntu-latest
+
+    needs:
+      - get-charts
+
+    strategy:
+      fail-fast: false
+      matrix:
+        chart: ${{ fromJSON(needs.get-charts.outputs.charts) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Helm Lint - ${{ matrix.chart }}
+        shell: bash
+        run: |
+          HELM_CHART="${{ env.CHART_BASE_PATH }}/${{ matrix.chart }}"
+          ENVIRONMENTS=$(echo "${{ env.VALUES_ENVIRONMENTS }}" | cut -c 2- | rev | cut -c 2- | rev)
+
+          for ENVIRONMENT in $ENVIRONMENTS; do
+            VALUES_FILE="$HELM_CHART/values-$ENVIRONMENT.yaml"
+
+            if [ -f $VALUES_FILE ]; then
+              echo "==> Environment: $ENVIRONMENT"
+              helm lint $HELM_CHART -f $VALUES_FILE
+            else
+              echo "Skipping $HELM_CHART, Helm Values file $VALUES_FILE not found"
+            fi
+
+          done
